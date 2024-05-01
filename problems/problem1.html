@@ -201,7 +201,8 @@ function forward_kinematics(state) {
         let state = [settings.dof0, settings.dof1, settings.dof2, settings.dof3, settings.dof4, settings.dof5, settings.dof6, settings.dof7];
         let new_poses = forward_kinematics(state)
         let joints = robot.joints;
-        for(let i = 0; i < joints.length; i++) {
+        let links = robot.links;
+        for(let i = 0; i < links.length; i++) {
             robot.set_link_mesh_pose_from_SE3_matrix(engine, i, new_poses[i]);
         }
         refresh_displays(gui);
