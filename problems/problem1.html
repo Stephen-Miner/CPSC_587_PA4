@@ -1,0 +1,212 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <title>CPSC 487/587</title>
+    <script src="https://polyfill.io/v3/polyfill.min.js?features=es6"></script>
+    <script id="MathJax-script" async src="https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-mml-chtml.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/lil-gui@0.19.1/dist/lil-gui.umd.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/mathjs/10.3.0/math.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/quaternion@1.5.1/quaternion.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/numeric@1.2.6/numeric-1.2.6.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/stats.js@0.17.0/build/stats.min.js"></script>
+    <script type="importmap">
+        {
+            "imports": {
+              "three": "https://unpkg.com/three@0.160.0/build/three.module.js",
+              "three/": "https://unpkg.com/three@0.160.0/"
+            }
+        }
+    </script>
+</head>
+<body>
+<script type="module">
+    import {ThreeEngine} from "../js/utils/utils_three.js";
+    import {B1Z1Robot, XArm7Robot} from "../js/utils/utils_robot.js";
+    import {get_default_lil_gui, refresh_displays} from "../js/utils/utils_three.js";
+    import {mul_matrix_matrix, mul_matrix_scalar, add_matrix_matrix, frobenius_norm_matrix} from "../js/utils/utils_math.js";
+
+    // todo: create a visualization that demonstrates your knowledge of forward kinematics on a robot model.
+    // todo: The "default" assignment is to recreate this visualization:
+    // todo: https://yale-cpsc-487-587-internal-djrakita-c95fa6c3239a481a48d29a6b0fd.gitlab.io/html/unit4_visualizations/fk.html
+    // todo: or this visualization:
+    // todo: https://yale-cpsc-487-587-internal-djrakita-c95fa6c3239a481a48d29a6b0fd.gitlab.io/html/unit4_visualizations/fk2.html
+    // todo: however, feel free to deviate from this if you want to.
+    // todo: I will be adding information to the class wiki on important properties and subroutines regarding the robot
+    // todo: object created for this class.  If you have questions, refer to that wiki or ask me over slack.
+
+    let engine = ThreeEngine.new_default_3d();
+
+    let settings = {
+        'display_mesh': true,
+        'display_wireframe': false,
+        'display_link_mesh_frame_only': false,
+        'dof0': 0,
+        'dof1': 0,
+        'dof2': 0,
+        'dof3': 0,
+        'dof4': 0,
+        'dof5': 0,
+        'dof6': 0,
+        'dof7': 0
+    }
+    let actions = {
+      'reset': () => {
+          settings.display_mesh = true;
+          settings.display_wireframe = false;
+          settings.display_link_mesh_frame_only = false;
+          settings.dof0 = 0;
+          settings.dof1 = 0;
+          settings.dof2 = 0;
+          settings.dof3 = 0;
+          settings.dof4 = 0;
+          settings.dof5 = 0;
+          settings.dof6 = 0;
+          settings.dof7 = 0;
+          refresh_displays(gui);
+      },
+       'select_all_frames': () => {
+
+       },
+        'deselect_all_frames': () => {
+
+        }
+    };
+
+    let gui = get_default_lil_gui();
+    gui.add(settings, "display_mesh").name("Display Mesh");
+    gui.add(settings, "display_wireframe").name("Display Wireframe");
+    gui.add(settings, "display_link_mesh_frame_only").name("Display Mesh only with Frame");
+
+    let dof_folder = gui.addFolder("DOFs");
+    dof_folder.add(settings, 'dof0', 0, 0.7);
+    dof_folder.add(settings, 'dof1', -6.28, 6.28);
+    dof_folder.add(settings, 'dof2', -2.059, 2.0944);
+    dof_folder.add(settings, 'dof3', -6.28, 6.28);
+    dof_folder.add(settings, 'dof4', -0.19198, 3.927);
+    dof_folder.add(settings, 'dof5', -6.28, 6.28);
+    dof_folder.add(settings, 'dof6', -1.69297, 3.14);
+    dof_folder.add(settings, 'dof7', -2.059, 6.28);
+
+    let action_folder = gui.addFolder("Actions");
+    action_folder.add(actions, 'reset');
+    action_folder.add(actions, 'select_all_frames');
+    action_folder.add(actions, 'deselect_all_frames');
+
+    let link_folder = gui.addFolder("Links");
+
+
+    // if you want to use the XArm7 robot:
+    let robot = new XArm7Robot();
+
+    // this will spawn all of the robot's links at the origin
+    robot.spawn_robot(engine);
+
+function so3_exponential(m) {
+    let I = [[1,0,0],[0,1,0],[0,0,1]];
+    let u = [[m[2][1]], [m[0][2]], [m[1][0]]];
+    let B = frobenius_norm_matrix(u);
+    let p;
+    let q;
+    if(B < 0.0001) {
+        p = 1 - (Math.pow(B, 2) /6.0) + (Math.pow(B,4) / 120.0);
+        q = 0.5 - (Math.pow(B,2)/24.0 + Math.pow(B,4)/720.0);
+    }
+    else{
+        p = Math.sin(B)/B;
+        q = (1-Math.cos(B))/Math.pow(B,2);
+    }
+    let term_1 = I;
+    let term_2 = mul_matrix_scalar(m, p);
+    let term_3 = mul_matrix_scalar(mul_matrix_matrix(m, m), q);
+    return add_matrix_matrix(add_matrix_matrix(term_1, term_2), term_3);
+}
+
+function forward_kinematics(state) {
+    let joints = robot.joints;
+    let links = robot.links;
+    let kh = robot.kinematic_hierarchy;
+    let I = [[1,0,0,0],[0,1,0,0],[0,0,1,0],[0,0,0,1]];
+
+
+    let output_poses = [];
+    for(let i = 0; i < links.length; i++) {
+        output_poses.push( I );
+    }
+
+    kh.forEach(layer => {
+        layer.forEach(link_idx => {
+            let curr_link = links[link_idx];
+            let parent_link_idx = curr_link.parent_link_idx;
+
+            if(link_idx === 0) {
+
+            }
+            else {
+                let parent_joint_idx = curr_link.parent_joint_idx;
+                let curr_joint = joints[parent_joint_idx];
+                let joint_type = curr_joint.get_joint_type_string();
+
+                let curr_pose = output_poses[parent_link_idx];
+                let T_c = curr_joint.xyz_rpy_SE3_matrix;
+                curr_pose = mul_matrix_matrix(curr_pose, T_c);
+
+                // T_v will depend on some values in the state
+                let T_v;
+                if (joint_type === 'revolute') {
+                    let joint_value = state[curr_joint.dof_idx];
+                    let u_hat = curr_joint.axis;
+                    let old_so3 = [[0, -u_hat[2][0], u_hat[1][0]], [u_hat[2][0], 0, -u_hat[0][0]], [-u_hat[1][0], u_hat[0][0], 0]];
+                    let T_v_so3 = mul_matrix_scalar(old_so3, joint_value);
+                    let T_v_so3_exp = so3_exponential(T_v_so3);
+                    T_v = [[T_v_so3_exp[0][0], T_v_so3_exp[0][1], T_v_so3_exp[0][2], 0],
+                        [T_v_so3_exp[1][0], T_v_so3_exp[1][0], T_v_so3_exp[1][2], 0],
+                        [T_v_so3_exp[2][0], T_v_so3_exp[2][1], T_v_so3_exp[2][2], 0],
+                        [0, 0, 0, 1]];
+                } else if (joint_type === 'prismatic') {
+                    let joint_value = state[curr_joint.dof_idx];
+                    let u = curr_joint.axis;
+                    let u_scaled = mul_matrix_scalar(u, joint_value);
+                    T_v = [[1, 0, 0, u_scaled[0][0]],
+                        [0, 1, 0, u_scaled[1][0]],
+                        [0, 0, 1, u_scaled[2][0]],
+                        [0, 0, 0, 1]];
+                } else if (joint_type === 'floating') {
+                    let rd = curr_joint.rotation_dof_idxs;
+                    let td = curr_joint.translation_dof_idxs;
+
+                    let rv = [state[rd[0]], state[rd[1]], state[rd[2]]];
+                    let tv = [state[td[0]], state[td[1]], state[td[2]]];
+                    let T_v_so3 = [[0, -rv[2], rv[1]], [rv[2], 0, -rv[0]], [-rv[1], rv[0], 0]];
+                    let T_v_so3_exp = so3_exponential(T_v_so3);
+                    T_v = [
+                        [T_v_so3_exp[0][0], T_v_so3_exp[0][1], T_v_so3_exp[0][2], tv[0]],
+                        [T_v_so3_exp[1][0], T_v_so3_exp[1][1], T_v_so3_exp[1][2], tv[1]],
+                        [T_v_so3_exp[2][0], T_v_so3_exp[2][1], T_v_so3_exp[2][2], tv[2]],
+                        [0, 0, 0, 1]
+                    ];
+                } else {
+                    T_v = [[1, 0, 0, 0], [0, 1, 0, 0], [0, 0, 1, 0], [0, 0, 0, 1]];
+                }
+
+                curr_pose = mul_matrix_matrix(curr_pose, T_v);
+
+                output_poses[link_idx] = curr_pose;
+            }
+        });
+    });
+    return output_poses;
+}
+
+    engine.animation_loop(function() {
+        let state = [settings.dof0, settings.dof1, settings.dof2, settings.dof3, settings.dof4, settings.dof5, settings.dof6, settings.dof7];
+        let new_poses = forward_kinematics(state)
+        let joints = robot.joints;
+        for(let i = 0; i < joints.length; i++) {
+            robot.set_link_mesh_pose_from_SE3_matrix(engine, i, new_poses[i]);
+        }
+        refresh_displays(gui);
+    });
+
+</script>
+</body>
+</html>
